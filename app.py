@@ -48,10 +48,16 @@ def update_book(res_book, msg_book):
     for lvl in msg_book:
         # float key is ok without any arithmetic operations?
         if g.cap_pub_order_book_positions:
+            if lvl["size"] == 0:
+                continue
             key = lvl["position"]
+            res_book[key] = lvl
         else:
             key = lvl["price"]
-        res_book[key] = lvl
+            if lvl["size"] == 0:
+                res_book.pop(key, "")
+            else:
+                res_book[key] = lvl
 
 def collect_depth(res, msg, ob_levels):
     ob = res["order_book"]
@@ -426,15 +432,16 @@ async def init_check_capabilities(args):
 async def init_get_subscriptions():
     msg = await send_recv_init_cmd("get_subscriptions")
     subs = msg["content"]
+    subs = {k: SubscriptionDefinition(**v) for k, v in subs.items()}
     g.subscriptions.update(subs)
 
 async def init_list_available_quotes():
     try:
         msg = await send_recv_init_cmd("list_available_quotes")
     except RemoteException:
-        g.available_quotes = None
-    else:
-        g.available_quotes = msg["content"]
+        L.critical("failed command 'list_available_quotes'")
+        sys.exit(1)
+    g.available_quotes = msg["content"]
 
 def main():
     global L
