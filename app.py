@@ -94,11 +94,10 @@ def check_collection_finished(res, ob_levels, req_quotes):
         if req_pos.difference(set(x["position"] for x in ob["asks"].values())):
             return False
         # TODO: implied books need to be handled in some specific way?
-    if g.cap_pub_trades:
-        if "last_price" not in res:
-            return False
-        if "last_size" not in res:
-            return False
+    if "last_price" not in res:
+        return False
+    if "last_size" not in res:
+        return False
     return check_req_fields(res, req_quotes)
 
 async def collect_data(sock, ticker_id, ob_levels, daily, timeout):
@@ -403,8 +402,6 @@ async def init_check_capabilities(args):
         L.critical("nothing to do, please remove this module from this chain")
         sys.exit(1)
     g.cap_pub_order_book_positions = "PUB_ORDER_BOOK_POSITIONS" in content
-    # g.cap_pub_quotes = "PUB_QUOTES" in content
-    g.cap_pub_trades = "PUB_TRADES" in content
 
 async def init_get_subscriptions():
     msg = await send_recv_init_cmd("get_subscriptions")
