@@ -260,7 +260,7 @@ async def modify_subscription_noblock(ticker_id, sub_def):
 async def handle_get_snapshot_2(ident, msg, msg_raw):
     content = msg["content"]
     ticker_id = content["ticker_id"]
-    sub_def = dict(g.subscriptions[ticker_id])
+    sub_def = deepcopy(g.subscriptions[ticker_id])
     ob_levels = content.get("order_book_levels", 0)
     daily = content.get("daily_data", False)
     if ob_levels > 0:
@@ -316,6 +316,19 @@ async def handle_modify_subscription(ident, msg, msg_raw):
     """Calls modify_subscription and tracks subscriptions."""
     with await g.sub_locks[msg["content"]["ticker_id"]]:
         await handle_modify_subscription_2(ident, msg, msg_raw)
+
+async def handle_list_capabilities(ident, msg, msg_raw):
+    await g.sock_deal.send_multipart(ident + [b"", msg_raw])
+    msg_parts = await g.sock_deal_pub.poll_for_msg_id(msg["msg_id"])
+    msg = json.loads(msg_parts[-1].decode())
+    if msg["result"] != "ok":
+        await g.sock_ctl.send_multipart(ident + [b"", msg_parts[-1]])
+        return
+    caps = set(msg["content"])
+    caps.add("GET_SNAPSHOT")
+    msg["content"] = sorted(caps)
+    msg_bytes = (" " + json.dumps(msg)).encode()
+    await g.sock_ctl.send_multipart(ident + [b"", msg_bytes])
     
 async def handle_msg_1(ident, msg_raw):
     msg = json.loads(msg_raw.decode())
@@ -331,6 +344,8 @@ async def handle_msg_1(ident, msg_raw):
             await handle_get_snapshot(ident, msg, msg_raw)
         elif cmd == "modify_subscription":
             await handle_modify_subscription(ident, msg, msg_raw)
+        elif cmd == "list_capabilities":
+            await handle_list_capabilities(ident, msg, msg_raw)
         else:
             await fwd_message_no_change(msg_id, ident + [b"", msg_raw])
     except Exception as e:
@@ -375,6 +390,11 @@ def parse_args():
                         help="ctl socket binding address")
     parser.add_argument("pub_addr_up",
                         help="address of the upstream pub socket")
+    parser.add_argument("-t",
+                        "--collector-timeout",
+                        type=float,
+                        default=COLLECTOR_TIMEOUT / 1000,
+                        help="max seconds to wait for data collector")
     parser.add_argument("--log-level", default="INFO", help="logging level")
     args = parser.parse_args()
     try:
@@ -418,7 +438,9 @@ async def init_list_available_quotes():
 
 def main():
     global L
+    global COLLECTOR_TIMEOUT
     args = parse_args()
+    COLLECTOR_TIMEOUT = args.collector_timeout * 1000
     setup_logging(args)
     init_zmq_sockets(args)
     # A ticker_id based lock is needed to synchronize
